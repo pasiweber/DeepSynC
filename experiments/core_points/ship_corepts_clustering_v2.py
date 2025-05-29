@@ -1,9 +1,11 @@
 import os
+import sys
 import numpy as np
 import glob
 from mpire.pool import WorkerPool
 
-from helper import (
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/experiments/")
+from helper.datasets import (
     load_pendigits,
     load_optdigits,
     load_letterrecognition,
@@ -22,17 +24,18 @@ from helper import (
     load_coil100,
     load_cifar100,
     load_weizmann,
+)
+from helper.deep import (
     Autoencoder,
     get_train_and_testloader,
     load_pretrained_model,
     encode_batchwise,
 )
-
 from sklearn.metrics import pairwise_distances
-
 from SHiP import SHiP
 from SHiP.ultrametric_tree import UltrametricTreeType as UTreeType, AVAILABLE_ULTRAMETRIC_TREE_TYPES
 from SHiP.partitioning import PartitioningMethod as PMethod, AVAILABLE_PARTITIONING_METHODS
+from .ship_corepts_clustering_v2_core_pts import find_local_core_points_same, find_local_core_points_adaptive
 
 
 datasets_loading_methods = [
@@ -55,43 +58,6 @@ datasets_loading_methods = [
     (load_cifar100, "cifar100"),
     (load_weizmann, "weizmann"),
 ]
-
-
-def find_local_core_points_v2(data, k, percent):
-    n = data.shape[0]
-    subset = int(np.floor(n * percent))
-
-    p_dist = pairwise_distances(data, metric="euclidean")
-    core_dists = np.partition(p_dist, k - 1, axis=0)[k - 1]
-
-    nn = np.argpartition(p_dist, subset, axis=1)[:, :subset]
-    # nn_mask = np.tile(np.arange(n).reshape(-1, 1), (1, subset))
-    # nn = nn[nn != nn_mask].reshape(n, subset - 1)
-    refined_medians = np.median(core_dists[nn], axis=1)
-
-    vector_mask = core_dists < refined_medians
-    return vector_mask, refined_medians
-
-
-def find_local_core_points_v3(data, k, percent):
-    n = data.shape[0]
-    subset = int(np.floor(n * percent))
-
-    p_dist = pairwise_distances(data, metric="euclidean")
-    core_dists = np.partition(p_dist, k - 1, axis=0)[k - 1]
-
-    nn = np.argpartition(p_dist, subset, axis=1)[:, :subset]
-    # nn_mask = np.tile(np.arange(n).reshape(-1, 1), (1, subset))
-    # nn = nn[nn != nn_mask].reshape(n, subset - 1)
-
-    refined_medians = np.empty((n))
-    for i in range(n):
-        p_dist_neighbors = p_dist[np.ix_(nn[i], nn[i])]
-        core_dists_neighbors = np.partition(p_dist_neighbors, k - 1, axis=0)[k - 1]
-        refined_medians[i] = np.median(core_dists_neighbors)
-
-    vector_mask = core_dists < refined_medians
-    return vector_mask, refined_medians
 
 
 def load_data_and_embedding(load_fn, data_name):
@@ -196,8 +162,8 @@ pool = WorkerPool(n_jobs=20, use_dill=True)
 
 for treeType in TREE_TYPES:
     for find_core_pts_fn, core_pts_name in [
-        (find_local_core_points_v2, "same_core_pts"),
-        (find_local_core_points_v3, "adaptive_core_pts"),
+        (find_local_core_points_same, "same_core_pts"),
+        (find_local_core_points_adaptive, "adaptive_core_pts"),
     ]:
         for load_fn, data_name in datasets_loading_methods:
             original_data, embedded_data, gt_labels = load_data_and_embedding(load_fn, data_name)
@@ -212,7 +178,9 @@ for treeType in TREE_TYPES:
                     )
                     continue
 
-                pool.apply_async(run_ship, args=(core_pts_name, data_name, space_name, find_core_pts_fn, data, gt_labels, treeType))
+                pool.apply_async(
+                    run_ship, args=(core_pts_name, data_name, space_name, find_core_pts_fn, data, gt_labels, treeType)
+                )
 
 pool.stop_and_join()
 pool.terminate()

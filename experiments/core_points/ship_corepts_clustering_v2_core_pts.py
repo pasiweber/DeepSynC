@@ -1,7 +1,9 @@
 import os
+import sys
 import numpy as np
 
-from helper import (
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/experiments/")
+from helper.datasets import (
     load_pendigits,
     load_optdigits,
     load_letterrecognition,
@@ -20,14 +22,14 @@ from helper import (
     load_coil100,
     load_cifar100,
     load_weizmann,
+)
+from helper.deep import (
     Autoencoder,
     get_train_and_testloader,
     load_pretrained_model,
     encode_batchwise,
 )
-
 from sklearn.metrics import pairwise_distances
-
 from SHiP import SHiP
 from SHiP.ultrametric_tree import UltrametricTreeType as UTreeType, AVAILABLE_ULTRAMETRIC_TREE_TYPES
 from SHiP.partitioning import PartitioningMethod as PMethod, AVAILABLE_PARTITIONING_METHODS
@@ -55,7 +57,7 @@ datasets_loading_methods = [
 ]
 
 
-def find_local_core_points_v2(data, k, percent):
+def find_local_core_points_same(data, k, percent):
     n = data.shape[0]
     subset = int(np.floor(n * percent))
 
@@ -71,7 +73,7 @@ def find_local_core_points_v2(data, k, percent):
     return vector_mask, refined_medians
 
 
-def find_local_core_points_v3(data, k, percent):
+def find_local_core_points_adaptive(data, k, percent):
     n = data.shape[0]
     subset = int(np.floor(n * percent))
 
@@ -126,9 +128,9 @@ MIN_POINTS = 5
 MIN_CLUSTER_SIZE = 15
 
 for find_core_pts_fn, core_pts_name in [
-        (find_local_core_points_v2, "same_core_pts"),
-        (find_local_core_points_v3, "adaptive_core_pts"),
-    ]:
+    (find_local_core_points_same, "same_core_pts"),
+    (find_local_core_points_adaptive, "adaptive_core_pts"),
+]:
     for load_fn in datasets_loading_methods:
         original_data, embedded_data, gt_labels, data_name = load_data_and_embedding(load_fn)
         for data, space_name in [

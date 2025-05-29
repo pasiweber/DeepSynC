@@ -1,12 +1,14 @@
 import os
+import sys
 from tqdm import tqdm
 import numpy as np
 from clustpy.deep.neural_networks.feedforward_autoencoder import FeedforwardAutoencoder
 from sklearn.cluster import KMeans
 from SHiP import SHiP
-from helper import (
-    load_data,
 
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/experiments/")
+from helper.datasets import (
+    load_data,
     load_pendigits,
     load_optdigits,
     load_letterrecognition,
@@ -23,15 +25,18 @@ from helper import (
     load_coil20,
     load_coil100,
     load_weizmann,
-
+)
+from helper.deep import (
     detect_device,
-    save_dict_as_json,
     load_pretrained_model,
-    find_local_core_points_same,
-
     encode_batchwise,
     get_train_and_testloader,
 )
+from helper.utils import save_dict_as_json
+
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/")
+from DeepSync.helper import find_local_core_points_same
+
 
 datasets_loading_methods = [
     load_pendigits,
@@ -45,7 +50,6 @@ datasets_loading_methods = [
     load_mice,
     load_synth_high,
     load_synth_low,
-    
     load_mnist,
     load_fmnist,
     load_coil20,
@@ -66,37 +70,39 @@ N_MODELS = 5
 
 results = {}
 for ds_loader in tqdm(datasets_loading_methods, total=len(datasets_loading_methods)):
-    try :
-            data, gt_labels, data_name = load_data(ds_loader)
-            trainloader, testloader = get_train_and_testloader(data, gt_labels, batch_size)
-            print(f"Dataset: {data_name}")
-    except : # handling any reason for this particular dataset loading failure
+    try:
+        data, gt_labels, data_name = load_data(ds_loader)
+        trainloader, testloader = get_train_and_testloader(data, gt_labels, batch_size)
+        print(f"Dataset: {data_name}")
+    except:  # handling any reason for this particular dataset loading failure
         print(f"Loading {data_name} failed. Continue to next experiment")
         continue
     embedded_space_dim = min(data.shape[1], max_embed_size)
     gt_labels = gt_labels.numpy()
-    for i in range(N_MODELS):   
+    for i in range(N_MODELS):
         # initialize results dictionary
-        results[f"{data_name}_{i}"] =  {}
-        
+        results[f"{data_name}_{i}"] = {}
+
         # load the data and model
         _mpath = os.path.join(pretrained_models_path, f"pretrained_{data_name}_{i}.pth")
-        
+
         k_true = len(np.unique(gt_labels))
-        model = FeedforwardAutoencoder(layers=[data.shape[1],
-                                                ae_layers[0], ae_layers[1], ae_layers[2],
-                                                embedded_space_dim]).to(device)
+        model = FeedforwardAutoencoder(
+            layers=[data.shape[1], ae_layers[0], ae_layers[1], ae_layers[2], embedded_space_dim]
+        ).to(device)
         model = load_pretrained_model(model, _mpath, device)
         embedded, gt_labels = encode_batchwise(testloader, model, device)
         core_points_mask, th = find_local_core_points_same(embedded, k, percent)
-        core_points = embedded[np.where(np.diag(core_points_mask)==1)[0]]
-        k_true_core = len(np.unique(gt_labels[np.where(np.diag(core_points_mask)==1)[0]]))
+        core_points = embedded[np.where(np.diag(core_points_mask) == 1)[0]]
+        k_true_core = len(np.unique(gt_labels[np.where(np.diag(core_points_mask) == 1)[0]]))
 
         # ship core
         ship_core = SHiP(data=core_points, treeType="DCTree")
         ship_core_labels = ship_core.fit_predict(power=2, partitioningMethod="ThreshholdElbow")
         results[f"{data_name}_{i}"]["ship_core_labels"] = ship_core_labels
-        results[f"{data_name}_{i}"]["true_core_labels"] = gt_labels[np.where(np.diag(core_points_mask)==1)[0]].tolist()
+        results[f"{data_name}_{i}"]["true_core_labels"] = gt_labels[
+            np.where(np.diag(core_points_mask) == 1)[0]
+        ].tolist()
 
         # ship embedded
         ship_embedded = SHiP(data=embedded, treeType="DCTree")
