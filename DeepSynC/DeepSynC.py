@@ -1,8 +1,3 @@
-# Author: Pascal Weber <pascal.weber@univie.ac.at>
-#
-# License: BSD 3 clause
-
-
 from __future__ import annotations
 
 import numpy as np
