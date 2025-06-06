@@ -3,6 +3,12 @@ import sys
 import torch
 from clustpy.deep.neural_networks.feedforward_autoencoder import FeedforwardAutoencoder
 
+
+sys.path.append("/export/share/peters57dm/Verbund/deepsync")
+from DeepSynC.helper import find_local_core_points_same
+import numpy as np
+
+
 sys.path.append("/export/share/peters57dm/Verbund/deepsync/experiments/")
 from helper.datasets import (
     # Data
@@ -27,14 +33,15 @@ from helper.datasets import (
     load_cifar100,
     load_data,
 )
-from experiments.helper.deep import (
+from helper.deep import (
     # other helper methods
     detect_device,
     get_train_and_testloader,
     encode_batchwise,
     load_pretrained_model,  #
 )
-from competitors.competitors import (
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/experiments/competitors/")
+from competitors import (
     # competitors initializers
     acedec_fit,
     dcn_fit,
@@ -46,8 +53,9 @@ from competitors.competitors import (
     hdbscan_fit,
     affinityprop_fit,
     meanshift_fit,
+    sync_fit,
 )
-from helper.utils import save_dict_as_json
+from helper.utils import save_dict_as_json, stratified_sample
 from helper.tracker import EvaluationTracker, update_eval_tracker
 
 
@@ -63,35 +71,42 @@ experiment_params = {
         # ("idec", idec_fit),
         # ("hdbscan", hdbscan_fit),
         # ("affinityprop", affinityprop_fit),
-        ("meanshift", meanshift_fit),
+        # ("meanshift", meanshift_fit),
+        ("sync", sync_fit)
     ],
     "datasets": [
         load_optdigits,
-        load_letterrecognition,
-        load_gaussian_blobs,
-        load_example,
+        # load_letterrecognition,
+        # # load_gaussian_blobs,
+        # load_example,
         load_pendigits,
         load_usps,
         load_htru,
         load_har,
         load_mice,
-        load_synth_high,
-        load_synth_low,
-        load_mnist,
-        load_fmnist,
-        # load_kmnist,
-        # load_cifar10,
-        load_coil20,
-        load_coil100,
-        # load_cifar100,
-        load_weizmann,
+
+        # # load_synth_high,
+        # # load_synth_low,
+        
+        # load_coil20,
+        # load_coil100,
+        # load_weizmann,
+        
+        # load_mnist,
+        # load_fmnist,
+        
+        # # load_kmnist,
+        # # load_cifar10,
+        
+        # # load_cifar100,
+
     ],
     "experiment_repetitions": 1,
 }
 
 # Hey! that is important too. Don't go too fast my friend :)
 execution_params = {
-    "experiment_root_path": "/export/share/peters57dm/Verbund/deepsync/results/experiments/competitors302",
+    "experiment_root_path": "/export/share/peters57dm/Verbund/deepsync/results/experiments/AE_Sync_corepts_2",
     "model_name": "autoencoder.pth",
     "clustering_training_iterations": 150,
     "batch_size": 256,
@@ -132,7 +147,7 @@ N_MODELS = execution_params["n_models"]
 os.makedirs(base_path, exist_ok=True)
 
 # Execution
-n_experiments = len(competitors) * len(datasets_loading_methods) * experiment_repetitions
+n_experiments = len(competitors) * len(datasets_loading_methods) * experiment_repetitions * N_MODELS
 exp_follower = 1
 
 # save the experiment settings
@@ -146,6 +161,14 @@ for competitor_name, comp_fit_method in competitors:
     for ds_loader in datasets_loading_methods:
         try:
             data, gt_labels, data_name = load_data(ds_loader)
+
+            
+            # ################################################################# stratified sampling
+            # data, gt_labels = stratified_sample(data, gt_labels, 0.1, 42)
+            # ## There is one more comment below.
+            # #####################################################################################
+            
+            
             true_n_clusters = len(torch.unique(gt_labels))
             print(f"Dataset: {data_name}")
         except:  # handling any reason for this particular dataset loading failure
@@ -155,7 +178,6 @@ for competitor_name, comp_fit_method in competitors:
         os.makedirs(dataset_experiment_path, exist_ok=True)
         for exp_i in range(experiment_repetitions):
             for i in range(N_MODELS):
-
                 exp_no_name = "exp_{0:02}".format(exp_i)
                 experiment_directory_path = os.path.join(dataset_experiment_path, exp_no_name)
                 os.makedirs(experiment_directory_path, exist_ok=True)
@@ -169,9 +191,19 @@ for competitor_name, comp_fit_method in competitors:
                 model = load_pretrained_model(model, _mpath, device)
                 trainloader, testloader = get_train_and_testloader(data, gt_labels, batch_size)
 
+                # ############################################################## core points
+                embedded, gt_labels = encode_batchwise(testloader, model, device)
+                core_points_mask, th = find_local_core_points_same(embedded, 25, 0.1)
+                np_data = torch.from_numpy(data.numpy()[np.where(np.diag(core_points_mask) == 1)[0]])
+                np_gt_labels = torch.from_numpy(gt_labels.numpy()[np.where(np.diag(core_points_mask) == 1)[0]])
+                # ##############################################################################################
+
+
                 # convert pytorch tensors to numpy
-                np_data = data.numpy()
-                np_gt_labels = gt_labels.numpy()
+                # np_data = data.numpy()
+                # np_gt_labels = gt_labels.numpy()
+
+
                 eval_tracker = EvaluationTracker(dataset_size=len(np_data))
 
                 try:
@@ -193,7 +225,15 @@ for competitor_name, comp_fit_method in competitors:
                     continue
 
                 eval_tracker = update_eval_tracker(np_gt_labels, com.labels_, eval_tracker)
-                save_dict_as_json(eval_tracker.to_dict(), os.path.join(experiment_directory_path, f"results_{i}.json"))
+
+                eval_tracker_dict = eval_tracker.to_dict()
+                eval_tracker_dict["true_labels"] = np_gt_labels.tolist()
+                eval_tracker_dict["True_k"] = len(np.unique(np_gt_labels))
+
+                # ######################################### stratified sampling
+                # eval_tracker_dict["Note"] = "In this experiment we used only 10 percent of the original size of the data, using stratified sampling."
+                # #################################################################################################################
+                save_dict_as_json(eval_tracker_dict, os.path.join(experiment_directory_path, f"results_{i}.json"))
                 if hasattr(com, "neural_network_trained_"):
                     torch.save(
                         com.neural_network_trained_.state_dict(),

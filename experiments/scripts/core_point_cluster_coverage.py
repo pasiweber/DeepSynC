@@ -47,7 +47,9 @@ from DeepSynC.helper import (
     ae_sync_loss,
     # run deep sync
     deep_sync_model_ship_trueK,
-    deep_sync_model_ship
+    deep_sync_model_ship,
+    encode_batchwise,
+    find_local_core_points_same
 )
 from helper.deep import (
     detect_device,
@@ -63,15 +65,15 @@ from helper.utils import save_dict_as_json
 experiment_params = {
     "loss_funs": [
         ("ae_sync_loss", ae_sync_loss),
-        #("att_rep_loss", attraction_repelling_loss)
+        # ("att_rep_loss", attraction_repelling_loss)
     ],  # number of loss functions must be equal to # number of losses trackers
     "batch_loss_trackers": [
         AESyncLossTracker,
-        #AttractionRepellingLossTracker
+        # AttractionRepellingLossTracker
     ],
     "evaluation_tracker": EvaluationTracker,
     "datasets": [
-        load_example,
+        #load_example,
         #load_usps,
         #load_htru,
         #load_pendigits,
@@ -79,7 +81,7 @@ experiment_params = {
         #load_letterrecognition,
         #load_har,
         #load_mice,
-        #load_mnist,
+        load_mnist,
         #load_fmnist,
         #load_coil20,
         #load_coil100,
@@ -91,9 +93,9 @@ experiment_params = {
         # load_gaussian_blobs,
     ],
     "label_assignment_methods": [
-         ("knn_label_assignment", knn_assign_unlabeled_points),
-        #("mahalanobis_label_assignment", mahalanobis_assign_unlabeled_points),
-        #("knn_average_dist_label_assignment", knn_average_assign_unlabeled_points),
+        ("knn_label_assignment", knn_assign_unlabeled_points),
+        # ("mahalanobis_label_assignment", mahalanobis_assign_unlabeled_points),
+        # ("knn_average_dist_label_assignment", knn_average_assign_unlabeled_points),
         # ("vote_knn_methods", vote_of_two_knn_methods)
         # ("euclidean_label_assignment", euclidean_assign_unlabeled_points)
     ],
@@ -102,11 +104,11 @@ experiment_params = {
 assert len(experiment_params["loss_funs"]) == len(experiment_params["batch_loss_trackers"])
 # Hey! that is important too. Don't go too fast my friend :)
 execution_params = {
-    "experiment_root_path": "/export/share/peters57dm/Verbund/deepsync/results/experiments/intro_fig_103",
+    "experiment_root_path": "/export/share/peters57dm/Verbund/deepsync/results/experiments/core_point_cluster_coverage",
     "model_name": "autoencoder.pth",
     "k": 25,
     "percent": 0.1,
-    "n_check": 5,  # check for high confidence and check for early stopping.
+    "n_check": 3,  # check for high confidence and check for early stopping.
     "learning_rate_pretrain": None,
     "learning_rate_deepsync": 1e-4,
     "pretrain_training_iterations": None,
@@ -116,12 +118,10 @@ execution_params = {
     "do_pretrain": False,
     "pretrain_loss": torch.nn.MSELoss(),
     "do_deepsync_train": True,
-    "gif_duration": 600,
+    "gif_duration": 300,
     "pretrained_model_path": "/export/share/peters57dm/Verbund/data/n-pretrained-models/mse_pretrained_models256-128-64",
     "AE_layers": [256, 128, 64],
-    "Note": "In this experiment, we use SHiP with ground truth number of labels",
-    "Note2": "Starting from code 400 and above, we used the new case of labeling assignment methods where only high confidence points can say something",
-    "Note3": "removing the unified label method, 406: we use the best combination of deepsync and run for 5 pretrained models and let SHiP predict true K",
+    "Note": "just extracting the core point coverage",
 }
 # endregion
 
@@ -202,26 +202,13 @@ for lf, LossTracker in zip(loss_fns, loss_trackers):
                     model = load_pretrained_model(model, _mpath, device)
                     optimizer = torch.optim.Adam(model.parameters(), lr=deepsync_lr)
                     trainloader, testloader = get_train_and_testloader(data, gt_labels, batch_size)
-                    if do_deepsync_train:
-                        deep_sync_model_path = os.path.join(experiment_directory_path, deep_sync_model_name)
-                        loss_tracker = LossTracker()
-                        eval_tracker = EvaluationTracker(dataset_size=len(data))
-                        model, labels_over_iterations = deep_sync_model_ship_trueK(
-                            device,
-                            model,
-                            data,
-                            data_name,
-                            trainloader,
-                            testloader,
-                            optimizer,
-                            n_check,
-                            k,
-                            percent,
-                            clustering_n_epochs,
-                            loss_fun_method,
-                            label_assignment_method,
-                            loss_tracker,
-                            eval_tracker,
-                            experiment_directory_path,
-                            deep_sync_model_path,
-                        )
+                    
+                    embedded_data, embedded_labels = encode_batchwise(testloader, model, device)
+                    mask_same_comment, th_same_comment = find_local_core_points_same(embedded_data, k, percent)
+                    core_points = embedded_data[np.where(np.diag(mask_same_comment) == 1)[0]]
+                    core_point_labels = embedded_labels[np.where(np.diag(mask_same_comment) == 1)[0]]
+                    gt_uniques = np.unique(core_point_labels, return_counts=True)
+                    n_clusters = len(np.unique(core_point_labels))
+                    print("ration_core_points:", core_points.shape[0]/embedded_data.shape[0])
+                    print("Class distribution:\n", dict(zip(gt_uniques[0], gt_uniques[1])))
+

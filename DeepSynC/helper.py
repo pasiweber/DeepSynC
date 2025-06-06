@@ -5,7 +5,13 @@ from sklearn.neighbors import NearestNeighbors
 from collections import defaultdict
 from scipy.spatial.distance import cdist
 from SHiP import SHiP
+import sys
 
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/experiments/")
+from helper.tracker import update_eval_tracker
+from helper.deep import encode_batchwise
+from helper.utils import load_json_as_dict, save_dict_as_json
+from helper.plots import plot_2d_dataset, create_gif_from_directory
 
 def get_eps_neighbourhood(data, eps):
     n = data.shape[0]
@@ -827,7 +833,8 @@ def deep_sync_model_ship(
     os.makedirs(imgs_directory, exist_ok=True)
     os.makedirs(trackers_path, exist_ok=True)
     embedded, gt_labels = encode_batchwise(testloader, model, device)
-    labels_over_iterations = np.zeros((len(data), training_iterations + 1)) - 10
+    true_k = len(torch.unique(gt_labels))
+    labels_over_iterations = np.zeros((len(data), 1))
     core_points_mask, th = find_local_core_points_same(embedded, k, percent)
     original_labels = torch.zeros_like(gt_labels) - 1
     core_points = embedded[np.where(np.diag(core_points_mask) == 1)[0]]
@@ -860,25 +867,46 @@ def deep_sync_model_ship(
 
         train_embedded_data, _ = encode_batchwise(testloader, model, device)
         # label assignment
-        current_epoch_labels = labels_over_iterations[:, i]
-        current_epoch_labels = labels_assignment_method(train_embedded_data, current_epoch_labels)
-        if i > n_check:
+        if i >= n_check:
             crop = i
         else:
             crop = None
-        high_confidence_labels = check_equality_in_n_consequtive_cols(labels_over_iterations, n_check, crop)
+        high_confidence_labels = get_high_cof_labels(labels_over_iterations, n_check, crop)
+        current_epoch_labels = labels_over_iterations[:, i]
+        # consider points with low confidence as -1 so that they can be assigned to other clusters
+        current_epoch_labels[~high_confidence_labels] = -1
+        current_epoch_labels = labels_assignment_method(train_embedded_data, current_epoch_labels)
         previous_epoch_labels = labels_over_iterations[:, i]
-        unified_labels = assign_unified_labels(previous_epoch_labels, current_epoch_labels)
-        unified_labels[high_confidence_labels] = previous_epoch_labels[high_confidence_labels]
+        # unified_labels = assign_unified_labels(
+        #     previous_epoch_labels,
+        #     current_epoch_labels
+        # )
+
+        # prevent high confidence labels from changing
+        current_epoch_labels[high_confidence_labels] = previous_epoch_labels[high_confidence_labels]
+        # prevent labeled points from getting unlabeled
+        labeled_to_unlabeled_points_mask = np.logical_and(current_epoch_labels == -1, previous_epoch_labels != -1)
+        current_epoch_labels[labeled_to_unlabeled_points_mask] = previous_epoch_labels[labeled_to_unlabeled_points_mask]
+
         # 4 - Store the labels
-        labels_over_iterations[:, i + 1] = unified_labels
-        eval_tracker = update_eval_tracker(gt_labels, unified_labels, eval_tracker)
+        labels_over_iterations = np.hstack(
+            (labels_over_iterations, current_epoch_labels.reshape(-1, 1))
+        )  # let the labels over iterations matrix grow
+        eval_tracker = update_eval_tracker(gt_labels, current_epoch_labels, eval_tracker)
         saving_path = os.path.join(imgs_directory, "{0:03}".format(i) + ".jpg")
-        plot_2d_dataset(train_embedded_data, unified_labels, centers=None, fixed_scales=False, save=saving_path)
+        plot_2d_dataset(train_embedded_data, current_epoch_labels, centers=None, fixed_scales=False, save=saving_path)
         i += 1
+
+        # Early Stopping
         if np.all(high_confidence_labels):
-            print(f"apply early stopping after {i} iterations, all points are labeled confidently.")
+            print(f"Early stopping after {i} iterations, all points are labeled confidently.")
             break
+        if not_assigning_new_points(eval_tracker, n_check):
+            print(
+                f"Early stopping after {i} iterations, the algorithm is not assigning any new points for {n_check} iterations."
+            )
+            break
+
     # Create and save the iterations Plots GIF
     create_gif_from_directory(imgs_directory, os.path.join(directory, f"{dataset_name}.gif"), duration=300)
     # Save Trackers & model

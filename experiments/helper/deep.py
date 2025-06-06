@@ -12,6 +12,18 @@ def int_to_one_hot(label_tensor, n_labels):
     onehot.scatter_(1, label_tensor.unsqueeze(1).long(), 1.0)
     return onehot
 
+def relabel_negative_ones(labels):
+    labels = np.array(labels)  # Ensure it's a NumPy array
+    new_labels = labels.copy()
+    
+    # Find indices where label is -1
+    minus_one_indices = np.where(labels == -1)[0]
+    
+    # Assign each -1 a unique label: -1, -2, -3, -4, ...
+    for i, idx in enumerate(minus_one_indices):
+        new_labels[idx] = -1 - i  # Start at -1 and go down
+    
+    return new_labels
 
 def detect_device():
     """Automatically detects if you have a cuda enabled GPU"""

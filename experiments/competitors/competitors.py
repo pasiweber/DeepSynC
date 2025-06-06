@@ -1,5 +1,6 @@
 import os
 import pickle
+import torch
 from clustpy.deep.enrc import ACeDeC
 from clustpy.deep.dcn import DCN
 from clustpy.deep.ddc_n2d import DDC
@@ -9,6 +10,10 @@ from clustpy.deep.dkm import DKM
 from clustpy.deep.dec import IDEC
 from sklearn.cluster import KMeans, HDBSCAN, AffinityPropagation, MeanShift
 
+import sys
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/experiments/")
+sys.path.append("/export/share/peters57dm/Verbund/deepsync/")
+from helper.sync_raw import SyncClus
 
 def kmeans_clustering(data, n_clusters, base_path, data_name=None, normalize=None, input_centers=None, random_state=7):
     n_init = 1
@@ -211,7 +216,6 @@ def affinityprop_fit(
     embedded = _embed_data_np(data, batch_size, neural_network)
     return AffinityPropagation(random_state=random_state).fit(embedded)
 
-
 def meanshift_fit(
     n_clusters,
     batch_size,
@@ -224,3 +228,19 @@ def meanshift_fit(
 ):
     embedded = _embed_data_np(data, batch_size, neural_network)
     return MeanShift().fit(embedded)
+
+def sync_fit(
+    n_clusters,
+    batch_size,
+    device,
+    neural_network,
+    clustering_n_epochs,
+    clustering_optimizer_params,
+    data,
+    random_state,
+):
+    embedded = _embed_data_np(data, batch_size, neural_network)
+    embedded = torch.from_numpy(embedded)
+    sync = SyncClus()
+    labels = sync.fit_predict(embedded)
+    return sync

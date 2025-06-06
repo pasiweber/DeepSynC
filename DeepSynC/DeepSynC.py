@@ -4,8 +4,8 @@ import numpy as np
 import torch
 import sys
 
-from clustpy.deep.autoencoders._abstract_autoencoder import _AbstractAutoencoder
-from clustpy.deep.autoencoders import FeedforwardAutoencoder
+from clustpy.deep.neural_networks._abstract_autoencoder import _AbstractAutoencoder
+from clustpy.deep.neural_networks.feedforward_autoencoder import FeedforwardAutoencoder
 from clustpy.deep._data_utils import get_dataloader
 from clustpy.deep._train_utils import get_trained_network
 from clustpy.deep._utils import (
